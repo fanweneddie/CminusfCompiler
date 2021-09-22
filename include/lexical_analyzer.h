@@ -9,8 +9,9 @@ extern int fileno (FILE *__stream) __THROW __wur;
 
 #ifndef YYTOKENTYPE
 #define YYTOKENTYPE
+/* the integer code of token in cminus */
 typedef enum cminus_token_type {
-    //运算
+    // operation
     ADD = 259,
     SUB = 260,
     MUL = 261,
@@ -22,7 +23,7 @@ typedef enum cminus_token_type {
     EQ = 267,
     NEQ = 268,
     ASSIN = 269,
-    //符号
+    // punctuation
     SEMICOLON = 270,
     COMMA = 271,
     LPARENTHESE = 272,
@@ -31,7 +32,7 @@ typedef enum cminus_token_type {
     RBRACKET = 275,
     LBRACE = 276,
     RBRACE = 277,
-    //关键字
+    // key word
     ELSE = 278,
     IF = 279,
     INT = 280,
@@ -39,13 +40,13 @@ typedef enum cminus_token_type {
     RETURN = 282,
     VOID = 283,
     WHILE = 284,
-    //ID和NUM
+    // ID and NUM
     IDENTIFIER = 285,
     INTEGER = 286,
     FLOATPOINT = 287,
     ARRAY = 288,
     LETTER = 289,
-    //others
+    // others
     EOL = 290,
     COMMENT = 291,
     BLANK = 292,
