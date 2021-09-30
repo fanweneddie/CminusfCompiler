@@ -22,7 +22,7 @@ typedef enum cminus_token_type {
     GTE = 266,
     EQ = 267,
     NEQ = 268,
-    ASSIN = 269,
+    ASSIGN = 269,
     // punctuation
     SEMICOLON = 270,
     COMMA = 271,
