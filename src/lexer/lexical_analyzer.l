@@ -31,7 +31,7 @@ int pos_end;
 \>\=		{ return GTE; 	}
 \=\=		{ return EQ;  	}
 \!\=		{ return NEQ; 	}
-\=			{ return ASSIN; }
+\=			{ return ASSIGN; }
 
 \;			{ return SEMICOLON; 	}
 \,			{ return COMMA;			}
