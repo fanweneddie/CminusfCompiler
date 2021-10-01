@@ -8,17 +8,18 @@
 class Type;
 class Value;
 
+// a class that represents a use case
 struct Use
 {
+    // the current value
     Value *val_;
-    unsigned arg_no_;     // the no. of operand, e.g., func(a, b), a is 0, b is 1
+    // the no. of operand, e.g., func(a, b), a is 0, b is 1
+    unsigned arg_no_;
     Use(Value *val, unsigned no) : val_(val), arg_no_(no) {}
-
-    friend bool operator==(const Use & lhs, const Use & rhs){
-        return lhs.val_ == rhs.val_ && lhs.arg_no_ == rhs.arg_no_;
-    }
 };
 
+// a class that represents value in Cminus
+// just like Value in Jimple
 class Value
 {
 public:
@@ -41,14 +42,14 @@ public:
     }
     std::string get_name() const;
 
-    void replace_all_use_with(Value *new_val);
-    void remove_use(Value *val);
-
     virtual std::string print() = 0;
-protected:
+private:
+    // the type of the value
     Type *type_;
-    std::list<Use> use_list_;   // who use this value
-    std::string name_;    // should we put name field here ?
+    // a list of use case that shows which value uses this value
+    std::list<Use> use_list_;
+    // the name of this value
+    std::string name_;
 };
 
 #endif // SYSYC_VALUE_H

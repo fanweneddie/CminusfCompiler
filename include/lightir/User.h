@@ -3,8 +3,9 @@
 
 #include "Value.h"
 #include <vector>
-// #include <memory>
 
+// the class of a user value
+// it stores the info of the values that this user uses
 class User : public Value
 {
 public:
@@ -12,22 +13,16 @@ public:
     ~User() = default;
 
     std::vector<Value *>& get_operands();
-
-    // start from 0
+ 
     Value *get_operand(unsigned i) const;
 
-    // start from 0
     void set_operand(unsigned i, Value *v);
-    void add_operand( Value *v);
 
     unsigned get_num_operand() const;
-
-    void remove_use_of_ops();
-    void remove_operands(int index1,int index2);
-
-protected:
-    // std::unique_ptr< std::list<Value *> > operands_;   // operands of this value
-    std::vector<Value *> operands_;   // operands of this value
+private:
+    // the value that this user uses
+    std::vector<Value *> operands_;
+    // number of operands
     unsigned num_ops_;
 };
 

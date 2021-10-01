@@ -11,6 +11,7 @@ class ArrayType;
 class PointerType;
 class FloatType;
 
+// Types in Cminus IR
 class Type
 {
 public:
@@ -24,7 +25,7 @@ public:
         FloatTyID         // float
     };
 
-    explicit Type(TypeID tid, Module *m);
+    explicit Type(TypeID tid);
     ~Type() = default;
 
     TypeID get_type_id() const { return tid_; }
@@ -59,36 +60,30 @@ public:
 
     static PointerType *get_float_ptr_type(Module *m);
 
-    static PointerType *get_pointer_type(Type *contained);
-
-    static ArrayType *get_array_type(Type *contained, unsigned num_elements);
-
     Type *get_pointer_element_type();
-
-    Type *get_array_element_type();
-
-    int get_size();
     
-    Module *get_module();
-
     std::string print();
 
 private:
     TypeID tid_;
-    Module *m_;
 };
 
+// integer type in IR
+// it stores the number of bits for this integer
 class IntegerType : public Type {
 public:
-    explicit IntegerType(unsigned num_bits ,Module *m);
+    explicit IntegerType(unsigned num_bits );
 
-    static IntegerType *get(unsigned num_bits, Module *m );
+    static IntegerType *get(unsigned num_bits );
 
     unsigned get_num_bits();
 private:
+    // number of bits for this integer type
     unsigned num_bits_;
 };
 
+// function type in IR
+// it stores the type of return value and arguments
 class FunctionType : public Type {
 public:
     FunctionType(Type *result, std::vector<Type *> params);
@@ -106,10 +101,14 @@ public:
     std::vector<Type *>::iterator param_end() { return args_.end(); }
     Type *get_return_type() const;
 private:
+    // the type of return value
     Type *result_;
+    // the type of arguments
     std::vector<Type *> args_;
 };
 
+// array type in IR
+// it stores the element type of array and the size of array 
 class ArrayType : public Type {
 public:
     ArrayType(Type *contained, unsigned num_elements);
@@ -122,10 +121,14 @@ public:
     unsigned get_num_of_elements() const { return num_elements_; }
 
 private:
-    Type *contained_;   // The element type of the array.
-    unsigned num_elements_;  // Number of elements in the array.
+    // The element type of the array
+    Type *contained_;
+    // Number of elements in the array.
+    unsigned num_elements_;
 };
 
+// pointer type in IR
+// it contains the type of element that the pointer points to
 class PointerType : public Type {
 public:
     PointerType(Type *contained);
@@ -134,13 +137,16 @@ public:
     static PointerType *get(Type *contained);
 
 private:
-    Type *contained_;   // The element type of the ptr.
+    // The element type of the ptr.
+    Type *contained_;
 };
 
+// float type in IR
+// it contains no other field
 class FloatType : public Type {
 public:
-    FloatType (Module *m);
-    static FloatType *get(Module *m);
+    FloatType ();
+    static IntegerType *get();
 private:
 };
 

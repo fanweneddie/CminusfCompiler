@@ -9,10 +9,13 @@
 #include "User.h"
 #include "Constant.h"
 
+// the global variable
 class GlobalVariable : public User
 {
 private:
+    // whether this global variable is constant
     bool is_const_ ;
+    // initial value
     Constant* init_val_;
     GlobalVariable(std::string name, Module *m, Type* ty, bool is_const, Constant* init = nullptr);
 public:
