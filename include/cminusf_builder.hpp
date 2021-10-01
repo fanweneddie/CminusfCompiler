@@ -10,10 +10,11 @@
 #include <map>
 
 
-
+// This class stores the scope of variables.
+// It can help manage variables in different scopes
 class Scope {
 public:
-    // enter a new scope
+    // enter a new empty scope
     void enter() {
         inner.push_back({});
     }
@@ -23,6 +24,7 @@ public:
         inner.pop_back();
     }
 
+    // whether current scope is global scope
     bool in_global() {
         return inner.size() == 1;
     }
@@ -35,6 +37,10 @@ public:
         return result.second;
     }
 
+    // get the value of a variable whose name is name
+    // it will search from global scope to local scope
+    // return the value if we have found the first one
+    // return nullptr if we haven't found that one
     Value* find(std::string name) {
         for (auto s = inner.rbegin(); s!= inner.rend();s++) {
             auto iter = s->find(name);
@@ -47,19 +53,25 @@ public:
     }
 
 private:
+    // A scope is a hashmap that maps variables to their value
+    // inner is a "stack" of scope
     std::vector<std::map<std::string, Value *>> inner;
 };
 
-
+// Building IR for Cminus
 class CminusfBuilder: public ASTVisitor {
 public:
     CminusfBuilder() {
+        // module of current program
         module = std::unique_ptr<Module>(new Module("Cminus code"));
+        // IR builder for this module
         builder = new IRBuilder(nullptr, module.get());
+        // types of return value of function
         auto TyVoid = Type::get_void_type(module.get());
         auto TyInt32 = Type::get_int32_type(module.get());
         auto TyFloat = Type::get_float_type(module.get());
-
+        // int input(void)
+        // it returns an integer read from stdin
         auto input_type = FunctionType::get(TyInt32, {});
         auto input_fun =
             Function::create(
@@ -67,6 +79,8 @@ public:
                     "input",
                     module.get());
 
+        // void output(int)
+        // it prints the integer to stdout
         std::vector<Type *> output_params;
         output_params.push_back(TyInt32);
         auto output_type = FunctionType::get(TyVoid, output_params);
@@ -75,7 +89,8 @@ public:
                     output_type,
                     "output",
                     module.get());
-
+        // void outputFloat(float)
+        // int prints the float to stdout
         std::vector<Type *> output_float_params;
         output_float_params.push_back(TyFloat);
         auto output_float_type = FunctionType::get(TyVoid, output_float_params);
@@ -84,7 +99,8 @@ public:
                     output_float_type,
                     "outputFloat",
                     module.get());
-
+        // void neg_index_except(void)
+        // report error message and exit
         auto neg_idx_except_type = FunctionType::get(TyVoid, {});
         auto neg_idx_except_fun =
             Function::create(
@@ -119,9 +135,11 @@ private:
     virtual void visit(ASTVar &) override final;
     virtual void visit(ASTTerm &) override final;
     virtual void visit(ASTCall &) override final;
-
+    // IR builder for this module
     IRBuilder *builder;
+    // the scope for variables
     Scope scope;
+    // the module for compiler, which is a Cminus file
     std::unique_ptr<Module> module;
 };
 #endif

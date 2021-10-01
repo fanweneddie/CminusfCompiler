@@ -8,12 +8,14 @@ extern "C" {
 #include <memory>
 #include <string>
 
+// variable type in Cminus
 enum CminusType {
     TYPE_INT,
     TYPE_FLOAT,
     TYPE_VOID
 };
 
+// relation operator in Cminus
 enum RelOp {
     // <=
     OP_LE,
@@ -29,6 +31,7 @@ enum RelOp {
     OP_NEQ
 };
 
+// add operator in Cminus
 enum AddOp {
     // +
     OP_PLUS,
@@ -36,6 +39,7 @@ enum AddOp {
     OP_MINUS
 };
 
+// multiply operator in Cminus
 enum MulOp {
     // *
     OP_MUL,
@@ -69,6 +73,7 @@ struct ASTCall;
 
 class ASTVisitor;
 
+// Abstract Syntax Tree
 class AST {
 public:
     AST() = delete;
@@ -84,26 +89,34 @@ private:
     std::shared_ptr<ASTProgram> root = nullptr;
 };
 
+// node in Abstract Syntax Tree
 struct ASTNode {
     virtual void accept(ASTVisitor &) = 0;
 };
 
+// AST node that represents program
 struct ASTProgram : ASTNode {
     virtual void accept(ASTVisitor &) override final;
     std::vector<std::shared_ptr<ASTDeclaration>>
         declarations;
 };
 
+// AST node that represents declaration. 
+// type is the type of variable/ return type of function. 
+// id is the name of the variable/function. 
 struct ASTDeclaration: ASTNode {
     virtual void accept(ASTVisitor &) override;
     CminusType type;
     std::string id;
 };
 
+// AST node that represents factor
 struct ASTFactor: ASTNode {
     virtual void accept(ASTVisitor &) override;
 };
 
+// AST node that represents constant number
+// e.g. 1 or 0.1
 struct ASTNum: ASTFactor {
     virtual void accept(ASTVisitor &) override final;
     CminusType type;
@@ -113,18 +126,24 @@ struct ASTNum: ASTFactor {
     };
 };
 
+// AST node that represents variable declaration
+// e.g. int a or int a[10];
 struct ASTVarDeclaration: ASTDeclaration {
     virtual void accept(ASTVisitor &) override final;
     CminusType type;
     std::shared_ptr<ASTNum> num;
 };
 
+// AST node that represents function declaration
+// e.g. int foo(int a) { return a + 1; }
 struct ASTFunDeclaration: ASTDeclaration {
     virtual void accept(ASTVisitor &) override final;
     std::vector<std::shared_ptr<ASTParam>> params;
     std::shared_ptr<ASTCompoundStmt> compound_stmt;
 };
 
+// AST node that represents parameter
+// e.g. int a or int a[]
 struct ASTParam: ASTNode {
     virtual void accept(ASTVisitor &) override final;
     CminusType type;
@@ -133,21 +152,27 @@ struct ASTParam: ASTNode {
     bool isarray;
 };
 
+// AST node that represents statement
 struct ASTStatement : ASTNode {
     virtual void accept(ASTVisitor &) override;
 };
 
+// AST node that represents compound statement
+// e.g. {int a; a = 1;}
 struct ASTCompoundStmt: ASTStatement {
     virtual void accept(ASTVisitor&) override final;
     std::vector<std::shared_ptr<ASTVarDeclaration>> local_declarations;
     std::vector<std::shared_ptr<ASTStatement>> statement_list;
 };
 
+// AST node that represents expression statement
 struct ASTExpressionStmt: ASTStatement { 
     virtual void accept(ASTVisitor &) override final;
     std::shared_ptr<ASTExpression> expression; 
 };
 
+// AST node that represents selection statement
+// e.g. if(a > b) a = 1;
 struct ASTSelectionStmt: ASTStatement {
     virtual void accept(ASTVisitor &) override final;
     std::shared_ptr<ASTExpression> expression; 
@@ -156,28 +181,37 @@ struct ASTSelectionStmt: ASTStatement {
     std::shared_ptr<ASTStatement> else_statement;
 };
 
+// AST node that represents iteration statement
+// e.g. while(1) a = b;
 struct ASTIterationStmt: ASTStatement {
     virtual void accept(ASTVisitor &) override final;
     std::shared_ptr<ASTExpression> expression; 
     std::shared_ptr<ASTStatement> statement;
 };
 
+// AST node that represents return statement
+// e.g. return 2
 struct ASTReturnStmt: ASTStatement {
     virtual void accept(ASTVisitor &) override final;
     // should be nullptr if return void
     std::shared_ptr<ASTExpression> expression; 
 };
 
+// AST node that represents expression
 struct ASTExpression: ASTFactor {
     virtual void accept(ASTVisitor &) override;
 };
 
+// AST node that represents assign expression
+// e.g. a = 10
 struct ASTAssignExpression: ASTExpression {
     virtual void accept(ASTVisitor &) override final;
     std::shared_ptr<ASTVar> var;
     std::shared_ptr<ASTExpression> expression;
 };
 
+// AST node that represents simple expression
+// e.g. a > b
 struct ASTSimpleExpression: ASTExpression {
     virtual void accept(ASTVisitor &) override final;
     std::shared_ptr<ASTAdditiveExpression> additive_expression_l;
@@ -185,6 +219,8 @@ struct ASTSimpleExpression: ASTExpression {
     RelOp op;
 };
 
+// AST node that represents variable
+// e.g. a or a[2]
 struct ASTVar: ASTFactor {
     virtual void accept(ASTVisitor &) override final;
     std::string id;
@@ -192,6 +228,8 @@ struct ASTVar: ASTFactor {
     std::shared_ptr<ASTExpression> expression;
 };
 
+// AST node that represents additive expression
+// e.g. a+b
 struct ASTAdditiveExpression: ASTNode {
     virtual void accept(ASTVisitor &) override final;
     std::shared_ptr<ASTAdditiveExpression> additive_expression;
@@ -199,6 +237,8 @@ struct ASTAdditiveExpression: ASTNode {
     std::shared_ptr<ASTTerm> term;
 };
 
+// AST node that represents term
+// e.g. a*b
 struct ASTTerm : ASTNode {
     virtual void accept(ASTVisitor &) override final;
     std::shared_ptr<ASTTerm> term;
@@ -206,12 +246,15 @@ struct ASTTerm : ASTNode {
     std::shared_ptr<ASTFactor> factor;
 };
 
+// AST node that represents call
+// e.g. foo(a, b)
 struct ASTCall: ASTFactor {
     virtual void accept(ASTVisitor &) override final;
     std::string id;
     std::vector<std::shared_ptr<ASTExpression>> args;
 };
 
+// visitor pattern for AST node
 class ASTVisitor {
 public:
     virtual void visit(ASTProgram &) = 0;
