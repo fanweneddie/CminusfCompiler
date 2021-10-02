@@ -18,6 +18,8 @@ PointerType* FLOAT_32_PTR_TYPE;
 // current function. 
 // when we are outside of any function, cur_func = null
 Function* cur_func = nullptr;
+// current value
+Value* cur_val = nullptr;
 
 /// Transfrom a Cminus type to IR type. 
 /// Cminus type can only be int, float or void. 
@@ -25,6 +27,14 @@ Function* cur_func = nullptr;
 /// @param cminus_type      a Cminus type 
 /// @return                 the corresponding IR type 
 Type* CminusType_to_IRType(CminusType cminus_type);
+
+/// Check whether the operator is an int operator. 
+/// Also, we can transform int to float if needed.
+/// @param builder          IR builder to build transform instructions
+/// @param l_val            Points to left value
+/// @param r_val            Points to right value
+/// @return                 true iff the operator is an int operator 
+bool Is_int_operation(IRBuilder* builder, Value** l_val, Value** r_val);
 
 /// Visit a node of ASTProgram. 
 /// We should first get the type constants above. 
@@ -47,8 +57,22 @@ void CminusfBuilder::visit(ASTProgram &node) {
     }
 }
 
+/// Visit a node of ASTNum. 
+/// We need to store the value into cur_val for later use. 
+/// @param node     a node of ASTNum
 void CminusfBuilder::visit(ASTNum &node) {
+    
+    // sanity check
+    assert((node.type == TYPE_INT || node.type == TYPE_FLOAT) 
+        && "a number can only be int or float");
 
+    // store the value into cur_val
+    if (node.type == TYPE_INT) {
+        cur_val = ConstantInt::get(node.i_val, module.get());
+    }
+    else {
+        cur_val = ConstantFP::get(node.f_val, module.get());
+    }
 }
 
 /// Visit a node of ASTVarDeclaration. 
@@ -210,37 +234,228 @@ void CminusfBuilder::visit(ASTCompoundStmt &node) {
 }
 
 /// Visit a node of ASTExpressionStmt. 
-/// Here we just need to continue exploring the ASTExpreesion node
+/// Here we just need to continue exploring the (possible)ASTExpresion node. 
+/// If this expression is simply ";", then we do nothing. 
 /// @param node     a node of ASTExpressionStmt
 void CminusfBuilder::visit(ASTExpressionStmt &node) {
     
-    auto expr = node.expression;
-    if (expr) {
-        expr->accept(*this);
+    if (node.expression) {
+        node.expression->accept(*this);
     }
 }
 
 /// Visit a node of ASTSelectionStmt. 
-/// Here we just need to continue visiting 
+/// We need to continue visiting the conditional expression. 
 /// @param node     a node of ASTExpressionStmt
 void CminusfBuilder::visit(ASTSelectionStmt &node) {
+
+    node.expression->accept(*this);
+    
+    // create corresponding basic blocks: for true branch, false branch and next
+    auto true_bb = BasicBlock::create(module.get(), "", cur_func);
+    auto false_bb = BasicBlock::create(module.get(), "", cur_func);
+    auto next_bb = BasicBlock::create(module.get(), "", cur_func);
+
 }
 
 void CminusfBuilder::visit(ASTIterationStmt &node) { }
 
 void CminusfBuilder::visit(ASTReturnStmt &node) { }
 
-void CminusfBuilder::visit(ASTVar &node) { }
+void CminusfBuilder::visit(ASTVar &node) {
 
-void CminusfBuilder::visit(ASTAssignExpression &node) { }
+}
 
-void CminusfBuilder::visit(ASTSimpleExpression &node) { }
+/// Visit a node of ASTAssignExpression. 
+/// 
+/// @param node     a node of ASTAssignExpression
+void CminusfBuilder::visit(ASTAssignExpression &node) {
 
-void CminusfBuilder::visit(ASTAdditiveExpression &node) { }
+    node.expression->accept(*this);
+    auto value = cur_val;
 
-void CminusfBuilder::visit(ASTTerm &node) { }
+    node.var->accept(*this);
 
-void CminusfBuilder::visit(ASTCall &node) { }
+}
+
+/// Visit a node of ASTSimpleExpression.
+/// We need to do type transform if possible. 
+/// @param node     a node of ASTSimpleExpression
+void CminusfBuilder::visit(ASTSimpleExpression &node) {
+
+    // check whether the additive expressions are linked by relational operator
+    // 1. just an additive expression
+    if (!node.additive_expression_r) {
+        node.additive_expression_l->accept(*this);
+    }
+    // 2. two additive expressions
+    else {
+        // get left and right value
+        node.additive_expression_l->accept(*this);
+        auto l_val = cur_val;
+        node.additive_expression_r->accept(*this);
+        auto r_val = cur_val;
+
+        // do type transformation and get the operation type
+        bool is_int = Is_int_operation(builder, &l_val, &r_val);
+        // the result of operation
+        Value* result;
+        // check the opration type and generate instruction
+        switch(node.op) {
+            // <=
+            case OP_LE:
+                if (is_int) {
+                    result = builder->create_icmp_le(l_val, r_val);
+                } else {
+                    result = builder->create_fcmp_le(l_val, r_val);
+                }
+                break;
+            // <
+            case OP_LT:
+                if (is_int) {
+                    result = builder->create_icmp_lt(l_val, r_val);
+                } else {
+                    result = builder->create_fcmp_lt(l_val, r_val);
+                }
+                break;
+            // >
+            case OP_GT:
+                if (is_int) {
+                    result = builder->create_icmp_gt(l_val, r_val);
+                } else {
+                    result = builder->create_fcmp_gt(l_val, r_val);
+                }
+                break;
+            // >=
+            case OP_GE:
+                if (is_int) {
+                    result = builder->create_icmp_ge(l_val, r_val);
+                } else {
+                    result = builder->create_fcmp_ge(l_val, r_val);
+                }
+                break;
+            // ==
+            case OP_EQ:
+                if (is_int) {
+                    result = builder->create_icmp_eq(l_val, r_val);
+                } else {
+                    result = builder->create_fcmp_eq(l_val, r_val);
+                }
+                break;
+            // !=
+            case OP_NEQ:
+                if (is_int) {
+                    result = builder->create_icmp_ne(l_val, r_val);
+                } else {
+                    result = builder->create_fcmp_ne(l_val, r_val);
+                }
+                break;
+            default:
+                result = nullptr;
+                assert( nullptr && "strange relational operator type");
+                break;
+        }
+        // extend???
+        cur_val = result;
+    }
+}
+
+/// Visit a node of ASTAdditiveExpression.
+/// We need to do type transform if possible. 
+/// @param node     a node of ASTAdditiveExpression
+void CminusfBuilder::visit(ASTAdditiveExpression &node) {
+
+    // the additive expression is only made up of term
+    if (!node.additive_expression) {
+        node.term->accept(*this);
+    }
+    // the additive expression is linked by additive operator
+    // similar to the case in visiting ASTSimpleExpression
+    else {
+        node.additive_expression->accept(*this);
+        auto l_val = cur_val;
+        node.term->accept(*this);
+        auto r_val = cur_val;
+        bool is_int = Is_int_operation(builder, &l_val, &r_val);
+
+        Value* result;
+        switch(node.op) {
+            // +
+            case OP_PLUS:
+                if (is_int) {
+                    result = builder->create_iadd(l_val, r_val);
+                } else {
+                    result = builder->create_fadd(l_val, r_val);
+                }
+                break;
+            // -
+            case OP_MINUS:
+                if (is_int) {
+                    result = builder->create_isub(l_val, r_val);
+                } else {
+                    result = builder->create_fsub(l_val, r_val);
+                }
+                break;
+            default:
+                result = nullptr;
+                assert( nullptr && "strange additive operator type");
+                break;
+        }
+        cur_val = result;
+    }
+}
+
+/// Visit a node of ASTTerm
+/// We need to do type transform if possible. 
+/// @param node     a node of ASTTerm
+void CminusfBuilder::visit(ASTTerm &node) {
+
+    // the term is only made up of factor
+    if (!node.term) {
+        node.factor->accept(*this);
+    }
+    // the term is linked by a multiply operator
+    // similar to the case in visiting ASTSimpleExpression
+    else {
+        node.term->accept(*this);
+        auto l_val = cur_val;
+        node.factor->accept(*this);
+        auto r_val = cur_val;
+        bool is_int = Is_int_operation(builder, &l_val, &r_val);
+
+        Value* result;
+        switch(node.op) {
+            // *
+            case OP_MUL:
+                if (is_int) {
+                    result = builder->create_imul(l_val, r_val);
+                } else {
+                    result = builder->create_fmul(l_val, r_val);
+                }
+                break;
+            // /
+            case OP_DIV:
+                if (is_int) {
+                    result = builder->create_isdiv(l_val, r_val);
+                } else {
+                    result = builder->create_fdiv(l_val, r_val);
+                }
+                break;
+            default:
+                result = nullptr;
+                assert( nullptr && "strange multiply operator type");
+                break;
+        }
+        cur_val = result;
+    }
+}
+
+/// Visit a node of ASTCall
+/// We need to do type transform if possible. 
+/// @param node     a node of ASTCall
+void CminusfBuilder::visit(ASTCall &node) {
+
+}
 
 
 Type* CminusType_to_IRType(CminusType cminus_type) {
@@ -262,4 +477,30 @@ Type* CminusType_to_IRType(CminusType cminus_type) {
     }
 
     return IR_type;
+}
+
+bool Is_int_operation(IRBuilder* builder, Value** l_val, Value **r_val) {
+    
+    // marks whether the operator is int operator
+    bool is_int;
+    auto l_type = (*l_val)->get_type();
+    auto r_type = (*r_val)->get_type();
+
+    // check the type of left/right value and do type transformation
+    // 1. both int, no need to transform
+    if (l_type->is_integer_type() && r_type->is_integer_type()){
+        is_int = true;
+    }
+    // 2. not both int, so transform int value to float
+    else {
+        is_int = false;
+        if (l_type->is_integer_type()) {
+            builder->create_sitofp(*l_val, FLOAT_32_TYPE);
+        }
+        if (r_type->is_integer_type()) {
+            builder->create_sitofp(*r_val, FLOAT_32_TYPE);
+        }
+    }
+
+    return is_int;
 }
