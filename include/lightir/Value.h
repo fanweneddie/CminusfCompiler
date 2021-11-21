@@ -18,7 +18,7 @@ struct Use
     Use(Value *val, unsigned no) : val_(val), arg_no_(no) {}
 };
 
-// a class that represents value in Cminus
+// a class that represents an operand in Cminus
 // just like Value in Jimple
 class Value
 {
@@ -33,9 +33,8 @@ public:
     void add_use(Value *val, unsigned arg_no = 0);
 
     bool set_name(std::string name) { 
-        if (name_ == "")
-        {
-            name_=name;
+        if (name_ == "") {
+            name_ = name;
             return true;
         }   
         return false; 

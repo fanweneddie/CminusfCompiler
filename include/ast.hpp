@@ -224,7 +224,8 @@ struct ASTSimpleExpression: ASTExpression {
 struct ASTVar: ASTFactor {
     virtual void accept(ASTVisitor &) override final;
     std::string id;
-    // nullptr if var is of int type
+    // nullptr if var is not an array
+    // or ASTExpression should be an non-negative integer
     std::shared_ptr<ASTExpression> expression;
 };
 

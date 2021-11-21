@@ -12,7 +12,8 @@
 
 class GlobalVariable;
 
-// A module in Cminus IR
+// A module in Cminus IR,
+// and actually it means a file
 class Module
 {
 public:
@@ -39,7 +40,7 @@ private:
     std::list<Function *> function_list_;
     // Symbol table for values
     std::map<std::string, Value*> value_sym_;
-    // Instruction from opid to string 
+    // Instruction from opid to output string 
     std::map<Instruction::OpID, std::string> instr_id2string_;
     // Human readable identifier for the module
     std::string module_name_;

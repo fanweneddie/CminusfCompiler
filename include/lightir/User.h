@@ -4,8 +4,9 @@
 #include "Value.h"
 #include <vector>
 
-// the class of a user value
-// it stores the info of the values that this user uses
+// the class of a user of a value
+// it can actually be an instruction,
+// (if we say an instruction uses a value)
 class User : public Value
 {
 public:

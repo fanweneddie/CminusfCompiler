@@ -12,6 +12,7 @@ class PointerType;
 class FloatType;
 
 // Types in Cminus IR
+// Its granularity can be on variable, statement and baisc blocks
 class Type
 {
 public:
