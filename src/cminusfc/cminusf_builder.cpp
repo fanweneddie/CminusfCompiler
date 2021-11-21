@@ -1,10 +1,10 @@
 #include "cminusf_builder.hpp"
+// I write this code for fun.
 // I have referenced to the official solution. 
 // writing this lab is really addictive, just can't stop it ... 
 // chengli, yyds!!! 
 
-/// type constants
-
+/// type constants for llvm IR
 IntegerType* INT_1_TYPE;
 IntegerType* INT_32_TYPE;
 FloatType* FLOAT_32_TYPE;
@@ -20,6 +20,12 @@ PointerType* FLOAT_32_PTR_TYPE;
 Function* cur_func = nullptr;
 // current value
 Value* cur_val = nullptr;
+// current arguments of function
+std::vector<Argument*> args;
+// the index of current argument when visiting param
+int arg_index = 0;
+// whether the variable is a left value
+bool is_left_val = false;
 
 /// Transfrom a Cminus type to IR type. 
 /// Cminus type can only be int, float or void. 
@@ -51,7 +57,7 @@ void CminusfBuilder::visit(ASTProgram &node) {
     INT_32_PTR_TYPE = module->get_int32_ptr_type();
     FLOAT_32_PTR_TYPE = module->get_float_ptr_type();
 
-    // continue visit every declaration
+    // continue visiting every declaration
     for (auto decl : node.declarations) {
         decl->accept(*this);
     }
@@ -84,11 +90,11 @@ void CminusfBuilder::visit(ASTVarDeclaration &node) {
     
     // get the type of this variable
     Type* var_type = CminusType_to_IRType(node.type);
-    assert( (var_type == INT_32_TYPE || var_type == FLOAT_32_TYPE) 
+    assert((var_type == INT_32_TYPE || var_type == FLOAT_32_TYPE) 
             && "variable type can only be int and float");
 
     // check whether this variable is an array
-    // 1. array
+    // 1. the variable is an array
     if (node.num) {
         // get the type of array
         auto array_type = ArrayType::get(var_type, node.num.get()->i_val);
@@ -106,7 +112,7 @@ void CminusfBuilder::visit(ASTVarDeclaration &node) {
             scope.push(node.id, local_var);
         }
     }
-    // 2. not array
+    // 2. the variable is not an array
     else {
         // check whether the declaration is global or local
         // 1. global, init a global var with 0 and push this variable into scope
@@ -142,7 +148,8 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     // get params by transforming each parameter type
     for (auto param : node.params) {
         Type* param_type = CminusType_to_IRType(param->type);
-        assert(param_type && "parameter type should only be int, float or void.");
+        assert(param_type != nullptr 
+            && "parameter type should only be int, float or void.");
         params.push_back(param_type);
     }
     
@@ -170,13 +177,39 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     new_bb->add_pre_basic_block(cur_bb);
     builder->set_insert_point(new_bb);
 
+    // get the arguments of this function
+    args.clear();
+    for (auto arg_itr = func->arg_begin(); arg_itr != func->arg_end(); ++arg_itr) {
+        args.push_back(*arg_itr);
+    }
+
     // continue visiting the parameters
+    arg_index = 0;
     for (auto param : node.params) {
         param->accept(*this);
+        arg_index++;
     }
 
     // continue visiting the function body
     node.compound_stmt->accept(*this);
+
+    // add ret instruction if the function doesn't have a return statement
+    cur_bb = builder->get_insert_block();
+    if (!cur_bb->get_terminator()) {
+        // check the return type of this function
+        // 1. return void
+        if (func->get_return_type()->is_void_type()) {
+            builder->create_void_ret();
+        } 
+        // 2. return int
+        else if (func->get_return_type()->is_integer_type()) {
+            builder->create_ret(ConstantInt::get(0, module.get()));
+        } 
+        // 3. return float
+        else if (func->get_return_type()->is_float_type()) {
+            builder->create_ret(ConstantFP::get(0.0, module.get()));
+        }
+    }
 
     /// ----------- exit from the function -----------
 
@@ -186,38 +219,44 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 }
 
 /// Visit a node of ASTParam. 
-/// Here, we allocate space for the parameter. 
+/// Here, we allocate space for the parameter, 
+/// and store the value of arguments into the space
 /// @param node     a node of ASTParam 
-/// ?????????????????????????? how to allocate???
 void CminusfBuilder::visit(ASTParam &node) {
 
     // get the type of this parameter
     Type* param_type = CminusType_to_IRType(node.type);
-    assert(param_type && "parameter type should only be int, float or void.");
+    assert(param_type != nullptr 
+        && "parameter type should only be int, float or void.");
 
     // we don't need to do anything if the parameter is void
     if (param_type == VOID_TYPE)
         return;
 
+    // the register to be allocated
+    Value* alloc_reg = nullptr;
     // check whether this parameter is an array
-    // 1. array
+    // 1. the parameter is an array
     if (node.isarray) {
-        // allocate this array
+        // allocate this array, based on element type
         if (param_type == INT_32_TYPE) {
-
+            alloc_reg = builder->create_alloca(INT_32_PTR_TYPE);
         } else {
-
+            alloc_reg = builder->create_alloca(FLOAT_32_PTR_TYPE);
         }
     }
-    // 2. not array
+    // 2. the parameter is not an array
     else {
-        // allocate this parameter
+        // allocate this variable
         if (param_type == INT_32_TYPE) {
-
+            alloc_reg = builder->create_alloca(INT_32_TYPE);
         } else {
-
+            alloc_reg = builder->create_alloca(FLOAT_32_TYPE);
         }
     }
+    // store the argument into the allocated register
+    builder->create_store(args[arg_index], alloc_reg);
+    scope.push(node.id, alloc_reg);
 }
 
 /// Visit a node of ASTCompoundStmt. 
@@ -228,6 +267,7 @@ void CminusfBuilder::visit(ASTCompoundStmt &node) {
     for (auto local_decl : node.local_declarations) {
         local_decl->accept(*this);
     }
+
     for (auto stmt : node.statement_list) {
         stmt->accept(*this);
     }
@@ -245,37 +285,246 @@ void CminusfBuilder::visit(ASTExpressionStmt &node) {
 }
 
 /// Visit a node of ASTSelectionStmt. 
-/// We need to continue visiting the conditional expression. 
+/// We need to continue visiting the conditional expression,
+/// if-statement and else-statement
 /// @param node     a node of ASTExpressionStmt
 void CminusfBuilder::visit(ASTSelectionStmt &node) {
 
-    node.expression->accept(*this);
-    
-    // create corresponding basic blocks: for true branch, false branch and next
+    // get the current basic block
+    auto cur_bb = builder->get_insert_block();
+    // create corresponding basic blocks: for true branch, false branch and next block
     auto true_bb = BasicBlock::create(module.get(), "", cur_func);
     auto false_bb = BasicBlock::create(module.get(), "", cur_func);
     auto next_bb = BasicBlock::create(module.get(), "", cur_func);
 
+    // get the result of expression in cur_val
+    node.expression->accept(*this);
+    
+    // get the result of proper compare instruction
+    Value* cmp_result = nullptr;
+    if (cur_val->get_type()->is_integer_type()) {
+        cmp_result = builder->create_icmp_ne(cur_val, 
+                        ConstantInt::get(0, module.get()));
+    } else {
+        cmp_result = builder->create_fcmp_ne(cur_val, 
+                        ConstantFP::get(0.0, module.get()));
+    }
+    
+    // generate the branch instruction and connect basic blocks
+    if (node.else_statement) {
+        builder->create_cond_br(cmp_result, true_bb, false_bb);
+        // connect basic blocks
+        cur_bb->add_succ_basic_block(true_bb);
+        true_bb->add_pre_basic_block(cur_bb);
+        cur_bb->add_succ_basic_block(false_bb);
+        false_bb->add_pre_basic_block(cur_bb);
+    } else {
+        builder->create_cond_br(cmp_result, true_bb, next_bb);
+        // remove false_bb since it is not used
+        false_bb->erase_from_parent();
+        // connect basic blocks
+        cur_bb->add_succ_basic_block(true_bb);
+        true_bb->add_pre_basic_block(cur_bb);
+        cur_bb->add_succ_basic_block(next_bb);
+        next_bb->add_pre_basic_block(cur_bb);
+    }
+    
+    // continue visiting true branch
+    builder->set_insert_point(true_bb);
+    node.if_statement->accept(*this);
+    if (!true_bb->get_terminator()) {
+        builder->create_br(next_bb);
+        // connect basic blocks
+        true_bb->add_succ_basic_block(next_bb);
+        next_bb->add_pre_basic_block(true_bb);
+    }
+
+    // continue visiting false branch(if exists)
+    if (node.else_statement) {
+        builder->set_insert_point(false_bb);
+        node.else_statement->accept(*this);
+        if (!false_bb->get_terminator()) {
+            builder->create_br(next_bb);
+            // connect basic blocks
+            false_bb->add_succ_basic_block(next_bb);
+            next_bb->add_pre_basic_block(false_bb);
+        }
+    }
+
+    // focus on next_bb for next instructions
+    builder->set_insert_point(next_bb);
 }
 
-void CminusfBuilder::visit(ASTIterationStmt &node) { }
+/// Visit a node of ASTIterationStmt
+/// We just need to explore the conditional expression and
+/// statements in iteration
+/// @param node     a node of ASTIterationStmt
+void CminusfBuilder::visit(ASTIterationStmt &node) {
+    
+    // get the current basic block
+    auto cur_bb = builder->get_insert_block();
+    // create corresponding basic blocks: for comparion, true branch and next block
+    auto cmp_bb = BasicBlock::create(module.get(), "", cur_func);
+    auto true_bb = BasicBlock::create(module.get(), "", cur_func);
+    auto next_bb = BasicBlock::create(module.get(), "", cur_func);
 
-void CminusfBuilder::visit(ASTReturnStmt &node) { }
+    // get the result of expression in cur_val in cmp_bb
+    cur_bb->add_succ_basic_block(cmp_bb);
+    cmp_bb->add_pre_basic_block(cur_bb);
+    builder->set_insert_point(cmp_bb);
+    node.expression->accept(*this);
 
+    // get the result of proper compare instruction
+    Value* cmp_result = nullptr;
+    if (cur_val->get_type()->is_integer_type()) {
+        cmp_result = builder->create_icmp_ne(cur_val, 
+                        ConstantInt::get(0, module.get()));
+    } else {
+        cmp_result = builder->create_fcmp_ne(cur_val, 
+                        ConstantFP::get(0.0, module.get()));
+    }
+
+    // generate the branch instruction and connect basic blocks
+    builder->create_cond_br(cmp_result, true_bb, next_bb);
+    cmp_bb->add_succ_basic_block(true_bb);
+    true_bb->add_pre_basic_block(cmp_bb);
+    cmp_bb->add_succ_basic_block(next_bb);
+    next_bb->add_pre_basic_block(cmp_bb);
+
+    // continue visiting statements in iteration
+    builder->set_insert_point(true_bb);
+    node.statement->accept(*this);
+    if (!true_bb->get_terminator()) {
+        builder->create_br(cmp_bb);
+        // connect basic blocks
+        true_bb->add_succ_basic_block(cmp_bb);
+        cmp_bb->add_pre_basic_block(true_bb);
+    }
+
+    // focus on next_bb for next instructions
+    builder->set_insert_point(next_bb);
+}
+
+
+/// Visit a node of ASTReturnStmt
+/// We just need to explore the returned expression and
+/// do type transformation
+/// (we don't need to connect basic blocks inter-procedurally)
+/// @param node     a node of ASTReturnStmt
+void CminusfBuilder::visit(ASTReturnStmt &node) {
+
+    // check whether it is a void return
+    // 1. void return
+    if (!node.expression) {
+        builder->create_void_ret();
+    } 
+    // 2. return a value
+    else {
+        // get the result of returned expression in cur_val
+        node.expression->accept(*this);
+        // do type transformation
+        auto ret_expr_type = cur_val->get_type();
+        auto func_ret_type = cur_func->get_return_type();
+        if (ret_expr_type != func_ret_type) {
+            // 1. integer to float
+            if (func_ret_type->is_float_type()) {
+                cur_val = builder->create_sitofp(cur_val, FLOAT_32_TYPE);
+            } 
+            // 2. float to integer
+            else {
+                cur_val = builder->create_fptosi(cur_val, INT_32_TYPE);
+            }
+        }
+        // generate ret instruction
+        builder->create_ret(cur_val);
+    }
+}
+
+/// Visit a node of ASTVar.
+/// @param node     a node of ASTAssignExpression
 void CminusfBuilder::visit(ASTVar &node) {
 
+    // get the value of the variable and do sanity check
+    auto value = scope.find(node.id);
+    assert(value != nullptr && "the variable should be declared");
+    // get the flag of the type of the value and do sanity check
+    bool is_int = value->get_type()->is_integer_type();
+    bool is_float = value->get_type()->is_float_type();
+    bool is_ptr = value->get_type()->is_pointer_type();
+    bool is_array = value->get_type()->is_array_type();
+    bool cur_is_left_val = is_left_val;
+
+    // check whether the variable is an array
+    // 1. the variable is not an array
+    if (!node.expression) {
+        // check whether this variable is a left value
+        // 1. this variable is a left value, just return its address
+        if (cur_is_left_val) {
+            cur_val = value;
+            is_left_val = false;
+        }
+        // 2. this variable is not a left value
+        // load it or dereference it
+        else {
+            if (is_int || is_float || is_ptr) {
+                cur_val = builder->create_load(value);
+            } else {
+                cur_val = builder->create_gep(value, {ConstantInt::get(0, module.get())});
+            }
+        }
+    } 
+    // 2. the variable is an array
+    else {
+        // continue visiting the expression
+        node.expression->accept(*this);
+        auto expr_val = cur_val;
+        if (expr_val->get_type()->is_float_type()) {
+            expr_val = builder->create_fptosi(expr_val, INT_32_TYPE);
+        }
+
+        // check whether this variable is a left value
+        // 1. this variable is a left value
+        if (cur_is_left_val) {
+            cur_val = builder->create_gep(value, {expr_val});
+            is_left_val = false;
+        }
+        // 2. this variable is not a left value
+        else {
+            cur_val = builder->create_gep(value, {expr_val});
+        }
+    }
 }
 
 /// Visit a node of ASTAssignExpression. 
-/// 
+/// We need to get the expression result and address. 
+/// Then we can do type transformation and store the value
 /// @param node     a node of ASTAssignExpression
 void CminusfBuilder::visit(ASTAssignExpression &node) {
 
+    // visit the right expression and the left value
     node.expression->accept(*this);
-    auto value = cur_val;
-
+    auto expr_result = cur_val;
+    is_left_val = true;
     node.var->accept(*this);
+    auto addr = cur_val;
+    
+    // do type transform(if possible) for right value
+    Type* l_type = addr->get_type();
+    Type* r_type = expr_result->get_type();
+    
+    if (l_type != r_type) {
+        // int to float
+        if (r_type == INT_32_TYPE) {
+            expr_result = builder->create_sitofp(expr_result, FLOAT_32_TYPE);
+        // float to int
+        } else if (r_type == FLOAT_32_TYPE) {
+            expr_result = builder->create_fptosi(expr_result, INT_32_TYPE);
+        }
+    }
 
+    // store and update cur_val
+    builder->create_store(expr_result, addr);
+    cur_val = expr_result;
 }
 
 /// Visit a node of ASTSimpleExpression.
@@ -283,12 +532,12 @@ void CminusfBuilder::visit(ASTAssignExpression &node) {
 /// @param node     a node of ASTSimpleExpression
 void CminusfBuilder::visit(ASTSimpleExpression &node) {
 
-    // check whether the additive expressions are linked by relational operator
+    // check the orgnization of the simple expression
     // 1. just an additive expression
     if (!node.additive_expression_r) {
         node.additive_expression_l->accept(*this);
     }
-    // 2. two additive expressions
+    // 2. two additive expressions linked by a relational operator
     else {
         // get left and right value
         node.additive_expression_l->accept(*this);
@@ -352,11 +601,11 @@ void CminusfBuilder::visit(ASTSimpleExpression &node) {
                 break;
             default:
                 result = nullptr;
-                assert( nullptr && "strange relational operator type");
+                assert(nullptr && "strange relational operator type");
                 break;
         }
-        // extend???
-        cur_val = result;
+        // extend the result from bool to int32, and save it in cur_val
+        cur_val = builder->create_zext(result, INT_32_TYPE);
     }
 }
 
@@ -365,11 +614,12 @@ void CminusfBuilder::visit(ASTSimpleExpression &node) {
 /// @param node     a node of ASTAdditiveExpression
 void CminusfBuilder::visit(ASTAdditiveExpression &node) {
 
-    // the additive expression is only made up of term
+    // check the organization of the additive expression
+    // 1. the additive expression is only made up of term
     if (!node.additive_expression) {
         node.term->accept(*this);
     }
-    // the additive expression is linked by additive operator
+    // 2. the additive expression is linked by additive operator
     // similar to the case in visiting ASTSimpleExpression
     else {
         node.additive_expression->accept(*this);
@@ -378,6 +628,7 @@ void CminusfBuilder::visit(ASTAdditiveExpression &node) {
         auto r_val = cur_val;
         bool is_int = Is_int_operation(builder, &l_val, &r_val);
 
+        // get the register to store the result, and save it in cur_val
         Value* result;
         switch(node.op) {
             // +
@@ -410,11 +661,12 @@ void CminusfBuilder::visit(ASTAdditiveExpression &node) {
 /// @param node     a node of ASTTerm
 void CminusfBuilder::visit(ASTTerm &node) {
 
-    // the term is only made up of factor
+    // check the organization of the term
+    // 1. the term is only made up of factor
     if (!node.term) {
         node.factor->accept(*this);
     }
-    // the term is linked by a multiply operator
+    // 2. the term is linked by a multiply operator
     // similar to the case in visiting ASTSimpleExpression
     else {
         node.term->accept(*this);
@@ -446,6 +698,8 @@ void CminusfBuilder::visit(ASTTerm &node) {
                 assert( nullptr && "strange multiply operator type");
                 break;
         }
+
+        // save result into cur_val
         cur_val = result;
     }
 }
@@ -455,6 +709,36 @@ void CminusfBuilder::visit(ASTTerm &node) {
 /// @param node     a node of ASTCall
 void CminusfBuilder::visit(ASTCall &node) {
 
+    // get the calling function and do sanity check
+    auto func = static_cast<Function *>(scope.find(node.id));
+    assert(func && "function should be declared first");
+    assert(func->get_function_type()->get_num_of_args() == node.args.size()
+            && "number of formal argument should be equal to number of actual argument");
+
+    // the list of actual arguments
+    std::vector<Value*> actual_args;
+    // the iterator of formal argument type 
+    auto formal_arg_type_itr = func->get_function_type()->param_begin();
+
+    // visit the arguments(do type transformation if possible),
+    // and then get the list of actual arguments
+    for (auto arg : node.args) {
+        arg->accept(*this);
+        // type transformation
+        if (cur_val->get_type() != *formal_arg_type_itr 
+                && !(*formal_arg_type_itr)->is_pointer_type()) {
+            if ((*formal_arg_type_itr)->is_integer_type()) {
+                cur_val = builder->create_fptosi(cur_val, INT_32_TYPE);
+            } else {
+                cur_val = builder->create_sitofp(cur_val, FLOAT_32_TYPE);
+            }
+        }
+        actual_args.push_back(cur_val);
+        formal_arg_type_itr++;
+    }
+
+    // generate a call instruction
+    builder->create_call(func, actual_args);
 }
 
 
