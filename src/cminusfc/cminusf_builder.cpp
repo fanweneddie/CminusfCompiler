@@ -173,7 +173,9 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     // create a new basic block for this function and insert it into builder
     auto new_bb = BasicBlock::create(module.get(), node.id, cur_func);
     auto cur_bb = builder->get_insert_block();
-    cur_bb->add_succ_basic_block(new_bb);
+    if (cur_bb) {
+        cur_bb->add_succ_basic_block(new_bb);
+    }
     new_bb->add_pre_basic_block(cur_bb);
     builder->set_insert_point(new_bb);
 
@@ -448,10 +450,10 @@ void CminusfBuilder::visit(ASTVar &node) {
     auto value = scope.find(node.id);
     assert(value != nullptr && "the variable should be declared");
     // get the flag of the type of the value and do sanity check
-    bool is_int = value->get_type()->is_integer_type();
-    bool is_float = value->get_type()->is_float_type();
-    bool is_ptr = value->get_type()->is_pointer_type();
-    bool is_array = value->get_type()->is_array_type();
+    auto value_type = value->get_type()->get_pointer_element_type();
+    bool is_int = value_type->is_integer_type();
+    bool is_float = value_type->is_float_type();
+    bool is_ptr = value_type->is_pointer_type();
     bool cur_is_left_val = is_left_val;
 
     // check whether the variable is an array
@@ -509,8 +511,8 @@ void CminusfBuilder::visit(ASTAssignExpression &node) {
     auto addr = cur_val;
     
     // do type transform(if possible) for right value
-    Type* l_type = addr->get_type();
-    Type* r_type = expr_result->get_type();
+    auto l_type = addr->get_type()->get_pointer_element_type();
+    auto r_type = expr_result->get_type();
     
     if (l_type != r_type) {
         // int to float
@@ -738,9 +740,8 @@ void CminusfBuilder::visit(ASTCall &node) {
     }
 
     // generate a call instruction
-    builder->create_call(func, actual_args);
+    cur_val = builder->create_call(func, actual_args);
 }
-
 
 Type* CminusType_to_IRType(CminusType cminus_type) {
 
