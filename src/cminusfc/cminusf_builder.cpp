@@ -14,8 +14,7 @@ PointerType* INT_32_PTR_TYPE;
 PointerType* FLOAT_32_PTR_TYPE;
 
 /// global variables
-
-// current function. 
+// current function.
 // when we are outside of any function, cur_func = null
 Function* cur_func = nullptr;
 // current value
@@ -169,7 +168,6 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 
     // enter the scope of this function
     cur_func = func;
-    scope.enter();
 
     // create a new basic block for this function and insert it into builder
     auto new_bb = BasicBlock::create(module.get(), node.id, cur_func);
@@ -216,8 +214,7 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 
     /// ----------- exit from the function -----------
 
-    // restore the scope and cur_func
-    scope.exit();
+    // restore cur_func
     cur_func = old_func;
 }
 
@@ -267,6 +264,7 @@ void CminusfBuilder::visit(ASTParam &node) {
 /// @param node     a node of ASTCompoundStmt 
 void CminusfBuilder::visit(ASTCompoundStmt &node) {
 
+    scope.enter();
     for (auto local_decl : node.local_declarations) {
         local_decl->accept(*this);
     }
@@ -274,6 +272,7 @@ void CminusfBuilder::visit(ASTCompoundStmt &node) {
     for (auto stmt : node.statement_list) {
         stmt->accept(*this);
     }
+    scope.exit();
 }
 
 /// Visit a node of ASTExpressionStmt. 
@@ -314,6 +313,7 @@ void CminusfBuilder::visit(ASTSelectionStmt &node) {
     }
     
     // generate the branch instruction and connect basic blocks
+    // 1. there exists else statement
     if (node.else_statement) {
         builder->create_cond_br(cmp_result, true_bb, false_bb);
         // connect basic blocks
@@ -321,7 +321,9 @@ void CminusfBuilder::visit(ASTSelectionStmt &node) {
         true_bb->add_pre_basic_block(cur_bb);
         cur_bb->add_succ_basic_block(false_bb);
         false_bb->add_pre_basic_block(cur_bb);
-    } else {
+    }
+    // 2. there does not exist else statement
+    else {
         builder->create_cond_br(cmp_result, true_bb, next_bb);
         // remove false_bb since it is not used
         false_bb->erase_from_parent();
@@ -335,26 +337,26 @@ void CminusfBuilder::visit(ASTSelectionStmt &node) {
     // continue visiting true branch
     builder->set_insert_point(true_bb);
     node.if_statement->accept(*this);
-    if (!true_bb->get_terminator()) {
+    // connect basic blocks
+    auto cur_nested_bb = builder->get_insert_block();
+    if (!cur_nested_bb->get_terminator()) {
+        cur_nested_bb->add_succ_basic_block(next_bb);
+        next_bb->add_pre_basic_block(cur_nested_bb);
         builder->create_br(next_bb);
-        // connect basic blocks
-        true_bb->add_succ_basic_block(next_bb);
-        next_bb->add_pre_basic_block(true_bb);
     }
 
     // continue visiting false branch(if exists)
     if (node.else_statement) {
         builder->set_insert_point(false_bb);
         node.else_statement->accept(*this);
-        if (!false_bb->get_terminator()) {
+        // connect basic blocks
+        cur_nested_bb = builder->get_insert_block();
+        if (!cur_nested_bb->get_terminator()) {
+            cur_nested_bb->add_succ_basic_block(next_bb);
+            next_bb->add_pre_basic_block(cur_nested_bb);
             builder->create_br(next_bb);
-            // connect basic blocks
-            false_bb->add_succ_basic_block(next_bb);
-            next_bb->add_pre_basic_block(false_bb);
         }
     }
-
-    // focus on next_bb for next instructions
     builder->set_insert_point(next_bb);
 }
 
@@ -374,6 +376,7 @@ void CminusfBuilder::visit(ASTIterationStmt &node) {
     // get the result of expression in cur_val in cmp_bb
     cur_bb->add_succ_basic_block(cmp_bb);
     cmp_bb->add_pre_basic_block(cur_bb);
+    builder->create_br(cmp_bb);
     builder->set_insert_point(cmp_bb);
     node.expression->accept(*this);
 
@@ -397,11 +400,12 @@ void CminusfBuilder::visit(ASTIterationStmt &node) {
     // continue visiting statements in iteration
     builder->set_insert_point(true_bb);
     node.statement->accept(*this);
-    if (!true_bb->get_terminator()) {
+    // connect basic blocks
+    auto cur_nested_bb = builder->get_insert_block();
+    if (!cur_nested_bb->get_terminator()) {
         builder->create_br(cmp_bb);
-        // connect basic blocks
-        true_bb->add_succ_basic_block(cmp_bb);
-        cmp_bb->add_pre_basic_block(true_bb);
+        cur_nested_bb->add_succ_basic_block(cmp_bb);
+        cmp_bb->add_pre_basic_block(cur_nested_bb);
     }
 
     // focus on next_bb for next instructions
@@ -452,7 +456,8 @@ void CminusfBuilder::visit(ASTVar &node) {
     assert(value != nullptr && "the variable should be declared");
     // get the flag of the type of the value and do sanity check
     auto value_type = value->get_type()->get_pointer_element_type();
-    if (value_type->is_array_type()) {
+    bool is_array = value_type->is_array_type();
+    if (is_array) {
         value_type = static_cast<ArrayType *>(value_type)->get_element_type();
     }
     bool is_int = value_type->is_integer_type();
@@ -461,7 +466,7 @@ void CminusfBuilder::visit(ASTVar &node) {
     bool cur_is_left_val = is_left_val;
 
     // check whether the variable is an array
-    // 1. the variable is not an array
+    // 1. the expression does not access an array
     if (!node.expression) {
         // check whether this variable is a left value
         // 1. this variable is a left value, just return its address
@@ -472,16 +477,19 @@ void CminusfBuilder::visit(ASTVar &node) {
         // 2. this variable is not a left value
         // load it or dereference it
         else {
-            if (is_int || is_float || is_ptr) {
+            if (is_array) {
+                cur_val = builder->create_gep(value, {ConstantInt::get(0, module.get())});
+            } else if (is_int || is_float || is_ptr) {
                 cur_val = builder->create_load(value);
             } else {
                 cur_val = builder->create_gep(value, {ConstantInt::get(0, module.get())});
             }
         }
     } 
-    // 2. the variable is an array
+    // 2. the variable accesses an array
     else {
         // continue visiting the expression
+        is_left_val = false;
         node.expression->accept(*this);
         auto expr_val = cur_val;
         if (expr_val->get_type()->is_float_type()) {
@@ -493,19 +501,14 @@ void CminusfBuilder::visit(ASTVar &node) {
             cur_val = builder->create_gep(value, {ConstantInt::get(0, module.get()), expr_val});
         } else if (is_ptr) {
             cur_val = builder->create_load(value);
-            cur_val = builder->create_gep(cur_val, {ConstantInt::get(0, module.get()), expr_val});
+            cur_val = builder->create_gep(cur_val, {expr_val});
         } else {
             cur_val = builder->create_gep(value, {ConstantInt::get(0, module.get())});
         }
 
-        // check whether this variable is a left value
-        // 1. this variable is a left value
-        if (cur_is_left_val) {
-            is_left_val = false;
-        }
-        // 2. this variable is not a left value
-        // load the array element into a register
-        else {
+        // if the array reference is not a left value,
+        // just load the array element into a register
+        if (!cur_is_left_val) {
             cur_val = builder->create_load(cur_val);
         }
     }
@@ -743,15 +746,20 @@ void CminusfBuilder::visit(ASTCall &node) {
     // and then get the list of actual arguments
     for (auto arg : node.args) {
         arg->accept(*this);
-        // type transformation
-        auto fat = *formal_arg_type_itr;
-        auto ct = cur_val->get_type();
-        if (cur_val->get_type() != *formal_arg_type_itr 
-                && !(*formal_arg_type_itr)->is_pointer_type()) {
-            if ((*formal_arg_type_itr)->is_integer_type()) {
-                cur_val = builder->create_fptosi(cur_val, INT_32_TYPE);
-            } else {
-                cur_val = builder->create_sitofp(cur_val, FLOAT_32_TYPE);
+        // type transformation for argument
+        if (cur_val->get_type() != *formal_arg_type_itr) {
+            // 1. float <-> int
+            if (!(*formal_arg_type_itr)->is_pointer_type()) {
+                if ((*formal_arg_type_itr)->is_integer_type()) {
+                    cur_val = builder->create_fptosi(cur_val, INT_32_TYPE);
+                } else {
+                    cur_val = builder->create_sitofp(cur_val, FLOAT_32_TYPE);
+                }
+            }
+            // 2. array -> pointer
+            else {
+                cur_val = builder->create_gep(cur_val, {ConstantInt::get(0, module.get()),
+                                                        ConstantInt::get(0, module.get())});
             }
         }
         actual_args.push_back(cur_val);
@@ -807,10 +815,10 @@ bool Is_int_operation(IRBuilder* builder, Value** l_val, Value **r_val) {
     else {
         is_int = false;
         if (l_type->is_integer_type()) {
-            builder->create_sitofp(*l_val, FLOAT_32_TYPE);
+            *l_val = builder->create_sitofp(*l_val, FLOAT_32_TYPE);
         }
         if (r_type->is_integer_type()) {
-            builder->create_sitofp(*r_val, FLOAT_32_TYPE);
+            *r_val = builder->create_sitofp(*r_val, FLOAT_32_TYPE);
         }
     }
 
