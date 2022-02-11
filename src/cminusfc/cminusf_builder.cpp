@@ -30,9 +30,10 @@ bool is_left_val = false;
 /// Transfrom a Cminus type to IR type. 
 /// Cminus type can only be int, float or void. 
 /// Otherwise, the returned type will be nullptr 
-/// @param cminus_type      a Cminus type 
+/// @param cminus_type      a Cminus type
+/// @param is_array         whether it is an array type
 /// @return                 the corresponding IR type 
-Type* CminusType_to_IRType(CminusType cminus_type);
+Type* CminusType_to_IRType(CminusType cminus_type, bool is_array);
 
 /// Check whether the operator is an int operator. 
 /// Also, we can transform int to float if needed.
@@ -89,7 +90,7 @@ void CminusfBuilder::visit(ASTNum &node) {
 void CminusfBuilder::visit(ASTVarDeclaration &node) {
     
     // get the type of this variable
-    Type* var_type = CminusType_to_IRType(node.type);
+    Type* var_type = CminusType_to_IRType(node.type, false);
     assert((var_type == INT_32_TYPE || var_type == FLOAT_32_TYPE) 
             && "variable type can only be int and float");
 
@@ -147,14 +148,14 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     std::vector<Type *> params;
     // get params by transforming each parameter type
     for (auto param : node.params) {
-        Type* param_type = CminusType_to_IRType(param->type);
+        Type* param_type = CminusType_to_IRType(param->type, param->isarray);
         assert(param_type != nullptr 
             && "parameter type should only be int, float or void.");
         params.push_back(param_type);
     }
     
     // get return type of this function
-    Type* return_type = CminusType_to_IRType(node.type);
+    Type* return_type = CminusType_to_IRType(node.type, false);
     assert(return_type && "return type should only be int, float or void.");
 
     // get the type of function
@@ -227,7 +228,7 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 void CminusfBuilder::visit(ASTParam &node) {
 
     // get the type of this parameter
-    Type* param_type = CminusType_to_IRType(node.type);
+    Type* param_type = CminusType_to_IRType(node.type, false);
     assert(param_type != nullptr 
         && "parameter type should only be int, float or void.");
 
@@ -443,7 +444,7 @@ void CminusfBuilder::visit(ASTReturnStmt &node) {
 }
 
 /// Visit a node of ASTVar.
-/// @param node     a node of ASTAssignExpression
+/// @param node     a node of ASTVar
 void CminusfBuilder::visit(ASTVar &node) {
 
     // get the value of the variable and do sanity check
@@ -451,6 +452,9 @@ void CminusfBuilder::visit(ASTVar &node) {
     assert(value != nullptr && "the variable should be declared");
     // get the flag of the type of the value and do sanity check
     auto value_type = value->get_type()->get_pointer_element_type();
+    if (value_type->is_array_type()) {
+        value_type = static_cast<ArrayType *>(value_type)->get_element_type();
+    }
     bool is_int = value_type->is_integer_type();
     bool is_float = value_type->is_float_type();
     bool is_ptr = value_type->is_pointer_type();
@@ -484,15 +488,25 @@ void CminusfBuilder::visit(ASTVar &node) {
             expr_val = builder->create_fptosi(expr_val, INT_32_TYPE);
         }
 
+        // get the element
+        if (is_int || is_float) {
+            cur_val = builder->create_gep(value, {ConstantInt::get(0, module.get()), expr_val});
+        } else if (is_ptr) {
+            cur_val = builder->create_load(value);
+            cur_val = builder->create_gep(cur_val, {ConstantInt::get(0, module.get()), expr_val});
+        } else {
+            cur_val = builder->create_gep(value, {ConstantInt::get(0, module.get())});
+        }
+
         // check whether this variable is a left value
         // 1. this variable is a left value
         if (cur_is_left_val) {
-            cur_val = builder->create_gep(value, {expr_val});
             is_left_val = false;
         }
         // 2. this variable is not a left value
+        // load the array element into a register
         else {
-            cur_val = builder->create_gep(value, {expr_val});
+            cur_val = builder->create_load(cur_val);
         }
     }
 }
@@ -512,6 +526,9 @@ void CminusfBuilder::visit(ASTAssignExpression &node) {
     
     // do type transform(if possible) for right value
     auto l_type = addr->get_type()->get_pointer_element_type();
+    if (l_type->is_array_type()) {
+        l_type = static_cast<ArrayType *>(l_type)->get_element_type();
+    }
     auto r_type = expr_result->get_type();
     
     if (l_type != r_type) {
@@ -727,6 +744,8 @@ void CminusfBuilder::visit(ASTCall &node) {
     for (auto arg : node.args) {
         arg->accept(*this);
         // type transformation
+        auto fat = *formal_arg_type_itr;
+        auto ct = cur_val->get_type();
         if (cur_val->get_type() != *formal_arg_type_itr 
                 && !(*formal_arg_type_itr)->is_pointer_type()) {
             if ((*formal_arg_type_itr)->is_integer_type()) {
@@ -743,15 +762,23 @@ void CminusfBuilder::visit(ASTCall &node) {
     cur_val = builder->create_call(func, actual_args);
 }
 
-Type* CminusType_to_IRType(CminusType cminus_type) {
+Type* CminusType_to_IRType(CminusType cminus_type, bool is_array) {
 
     Type* IR_type;
     switch (cminus_type) {
         case TYPE_INT:
-            IR_type = INT_32_TYPE;
+            if (is_array) {
+                IR_type = INT_32_PTR_TYPE;
+            } else {
+                IR_type = INT_32_TYPE;
+            }
             break;
         case TYPE_FLOAT:
-            IR_type = FLOAT_32_TYPE;
+            if (is_array) {
+                IR_type = FLOAT_32_PTR_TYPE;
+            } else {
+                IR_type = FLOAT_32_TYPE;
+            }
             break;
         case TYPE_VOID:
             IR_type = VOID_TYPE;

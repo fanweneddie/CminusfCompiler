@@ -356,14 +356,13 @@ Type *GetElementPtrInst::get_element_type(Value *ptr, std::vector<Value *> idxs)
 {
 
     Type *ty = ptr->get_type()->get_pointer_element_type();
-    assert(ty->is_array_type()||ty->is_integer_type()||ty->is_float_type());
-    if (ty->is_array_type())
-    {
+    assert(ty->is_array_type() || ty->is_pointer_type() || ty->is_integer_type() || ty->is_float_type());
+    if (ty->is_array_type()) {
         ArrayType *arr_ty = static_cast<ArrayType *>(ty);
         for (int i = 1; i < idxs.size(); i++) {
             ty = arr_ty->get_element_type();
             if (i < idxs.size() - 1) {
-                assert(ty->is_array_type() && "Index error!");    
+                assert(ty->is_array_type() && "Index error!");
             }
             if (ty->is_array_type()) {
                 arr_ty = static_cast<ArrayType *>(ty);
