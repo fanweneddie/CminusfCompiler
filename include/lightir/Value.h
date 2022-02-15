@@ -8,18 +8,13 @@
 class Type;
 class Value;
 
-// a class that represents a use case
 struct Use
 {
-    // the current value
     Value *val_;
-    // the no. of operand, e.g., func(a, b), a is 0, b is 1
-    unsigned arg_no_;
+    unsigned arg_no_;     // the no. of operand, e.g., func(a, b), a is 0, b is 1
     Use(Value *val, unsigned no) : val_(val), arg_no_(no) {}
 };
 
-// a class that represents an operand in Cminus
-// just like Value in Jimple
 class Value
 {
 public:
@@ -33,22 +28,23 @@ public:
     void add_use(Value *val, unsigned arg_no = 0);
 
     bool set_name(std::string name) { 
-        if (name_ == "") {
-            name_ = name;
+        if (name_ == "")
+        {
+            name_=name;
             return true;
         }   
         return false; 
     }
     std::string get_name() const;
 
+    void replace_all_use_with(Value *new_val);
+    void remove_use(Value *val);
+
     virtual std::string print() = 0;
 private:
-    // the type of the value
     Type *type_;
-    // a list of use case that shows which value uses this value
-    std::list<Use> use_list_;
-    // the name of this value
-    std::string name_;
+    std::list<Use> use_list_;   // who use this value
+    std::string name_;    // should we put name field here ?
 };
 
 #endif // SYSYC_VALUE_H

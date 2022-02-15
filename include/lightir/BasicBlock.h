@@ -14,7 +14,6 @@ class Function;
 class Instruction;
 class Module;
 
-// the basic block in Cminus IR
 class BasicBlock : public Value
 {
 public:
@@ -66,13 +65,9 @@ public:
 private:
     explicit BasicBlock(Module *m, const std::string &name ,
                         Function *parent );
-    // predecessor basic blocks
     std::list<BasicBlock *> pre_bbs_;
-    // successor basic blocks
     std::list<BasicBlock *> succ_bbs_;
-    // the list of instructions in this basic block
     std::list<Instruction *> instr_list_;
-    // the function that this basic block is in
     Function *parent_;
 
 };

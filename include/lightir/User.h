@@ -3,10 +3,8 @@
 
 #include "Value.h"
 #include <vector>
+// #include <memory>
 
-// the class of a user of a value
-// it can actually be an instruction,
-// (if we say an instruction uses a value)
 class User : public Value
 {
 public:
@@ -14,16 +12,22 @@ public:
     ~User() = default;
 
     std::vector<Value *>& get_operands();
- 
+
+    // start from 0
     Value *get_operand(unsigned i) const;
 
+    // start from 0
     void set_operand(unsigned i, Value *v);
+    void add_operand( Value *v);
 
     unsigned get_num_operand() const;
+
+    void remove_use_of_ops();
+    void remove_operands(int index1,int index2);
+
 private:
-    // the value that this user uses
-    std::vector<Value *> operands_;
-    // number of operands
+    // std::unique_ptr< std::list<Value *> > operands_;   // operands of this value
+    std::vector<Value *> operands_;   // operands of this value
     unsigned num_ops_;
 };
 
