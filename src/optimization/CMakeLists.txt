@@ -3,4 +3,4 @@ add_library(
         Dominators.cpp
         Mem2Reg.cpp
         LoopSearch.cpp
-)
+        ConstPropagation.cpp)

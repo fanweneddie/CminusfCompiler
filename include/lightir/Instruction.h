@@ -99,6 +99,8 @@ public:
     bool is_sub() { return op_id_ == sub; }
     bool is_mul() { return op_id_ == mul; }
     bool is_div() { return op_id_ == sdiv; }
+    bool is_int_instr() { return is_add() || is_sub() || is_mul() || is_div(); }
+    bool is_fp_instr() { return is_fadd() || is_fsub() || is_fmul() || is_fdiv(); }
 
 
     bool is_fadd() { return op_id_ == fadd; }
